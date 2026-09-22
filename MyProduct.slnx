@@ -1,0 +1,25 @@
+<Solution>
+  <Folder Name="/.github/" />
+  <Folder Name="/.github/repository-discovery/" />
+  <Folder Name="/.github/repository-discovery/tests/" />
+  <Folder Name="/.github/repository-discovery/tests/fixtures/" />
+  <Folder Name="/.github/repository-discovery/tests/fixtures/monorepo/" />
+  <Folder Name="/.github/repository-discovery/tests/fixtures/monorepo/src/" />
+  <Folder Name="/.github/repository-discovery/tests/fixtures/monorepo/src/api/" />
+  <Folder Name="/.github/repository-discovery/tests/fixtures/monorepo/src/desktop/" />
+  <Folder Name="/.github/repository-discovery/tests/fixtures/monorepo/src/shared/" />
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/api/">
+    <Project Path="apps/api/DotNetWebAPI.Api.csproj" />
+  </Folder>
+  <Folder Name="/apps/desktop/">
+    <Project Path="apps/desktop/NativeApp.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/repository-discovery/" />
+  <Folder Name="/repository-discovery/tests/" />
+  <Folder Name="/repository-discovery/tests/fixtures/" />
+  <Folder Name="/repository-discovery/tests/fixtures/monorepo/" />
+  <Folder Name="/repository-discovery/tests/fixtures/monorepo/src/" />
+  <Folder Name="/repository-discovery/tests/fixtures/monorepo/src/api/" />
+  <Folder Name="/repository-discovery/tests/fixtures/monorepo/src/desktop/" />
+</Solution>

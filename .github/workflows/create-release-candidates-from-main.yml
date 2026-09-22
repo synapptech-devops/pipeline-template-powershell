@@ -1,0 +1,82 @@
+name: Generate Release Candidate Artifacts
+
+# Manually creates a release candidate for every application that has changed
+# since its own last release-candidate build (see src/auto-rc.ts), using the
+# supplied commit as the build source. The reusable RC workflow still builds
+# and tests each selected application before publishing it.
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full Git commit SHA to evaluate and build release candidates from
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+# Candidate discovery relies on the RC tags created by earlier runs as each
+# application's baseline. Serialize commit-triggered discovery so its selected
+# applications are based on a stable published RC baseline.
+concurrency:
+  group: rc-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover-auto-rc:
+    name: Select applications for release candidates
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        working-directory: .github/repository-discovery
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      has_affected: ${{ steps.matrix.outputs.has_affected }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+      - name: Read project toolchain versions
+        id: toolchain
+        run: pwsh -NoProfile -File src/toolchain.ps1
+      - uses: actions/setup-node@v7
+        if: ${{ steps.toolchain.outputs.node != '' }}
+        with:
+          node-version: ${{ steps.toolchain.outputs.node }}
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v6
+        if: ${{ steps.toolchain.outputs.pnpm != '' }}
+        with:
+          version: ${{ steps.toolchain.outputs.pnpm }}
+          package_json_file: .github/repository-discovery/package.json
+      - run: pnpm install --frozen-lockfile
+      - name: Type-check repository discovery
+        run: pnpm run typecheck:discovery
+      - name: Test repository discovery
+        run: pnpm run test:discovery
+      - name: Determine applications changed since their own last release candidate
+        id: matrix
+        run: pnpm exec tsx src/auto-rc-cli.ts --root ../..
+
+  create-rc:
+    name: Create release candidate (${{ matrix.name }})
+    needs: discover-auto-rc
+    if: ${{ needs.discover-auto-rc.outputs.has_affected == 'true' }}
+    strategy:
+      # Independent per application: one app's build/test failure does not
+      # block or cancel rc creation for the others in the same main push.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-auto-rc.outputs.matrix) }}
+    # Serializes rc creation per application (across overlapping pushes/PRs, not
+    # across different applications in the same run — those still run in
+    # parallel). Without this, two concurrent runs touching the same app could
+    # both compute the same next rc.N and race pushing the tag.
+    concurrency:
+      group: rc-${{ matrix.id }}
+    uses: ./.github/workflows/build-and-publish-release-candidate.yml
+    with:
+      app_id: ${{ matrix.id }}
+      ref: ${{ inputs.commit }}
+      bump: minor
