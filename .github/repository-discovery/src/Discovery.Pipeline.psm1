@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'Discovery.Common.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Discovery.Common.psm1')
 
 function Get-RepositoryDiscovery {
   param([string] $Root)
@@ -18,7 +18,8 @@ function Get-RepositoryDiscovery {
     $wpf = (Test-XmlValue $xml 'UseWPF' 'true') -or $xml -match 'Microsoft\.WindowsDesktop\.App\.WPF'
     $winforms = (Test-XmlValue $xml 'UseWindowsForms' 'true') -or $xml -match 'System\.Windows\.Forms'
     $web = $xml -match 'Microsoft\.NET\.Sdk\.Web|Microsoft\.AspNetCore\.App|Microsoft\.WebApplication'
-    $classicAspNet = (-not $sdkStyle) -and (($relative | Where-Object { [System.IO.Path]::GetDirectoryName($_).Replace('\','/') -eq $appPath -and [System.IO.Path]::GetFileName($_) -match '^web\.config$' }).Count -gt 0 -or $xml -match 'System\.Web(\.|<)')
+    $hasWebConfig = @($relative | Where-Object { [System.IO.Path]::GetDirectoryName($_).Replace('\','/') -eq $appPath -and [System.IO.Path]::GetFileName($_) -match '^web\.config$' }).Count -gt 0
+    $classicAspNet = (-not $sdkStyle) -and ($hasWebConfig -or $xml -match 'System\.Web(\.|<)')
     $subtype = if ($wpf) { 'wpf' } elseif ($winforms) { 'winforms' } elseif ($web -or $classicAspNet) { if ($classicAspNet) { 'aspnet-framework' } else { 'web' } } else { 'library-or-service' }
     $windows = $wpf -or $winforms -or $classicAspNet -or (($xml -match 'net[0-4]\d|netstandard') -and -not $sdkStyle)
     $frameworks = @(Get-XmlValues $xml 'TargetFramework') + @((Get-XmlValues $xml 'TargetFrameworks') | ForEach-Object { $_ -split ';' }) + @((Get-XmlValues $xml 'TargetFrameworkVersion') | ForEach-Object { $_ -replace '^v','net' })
@@ -32,19 +33,24 @@ function Get-RepositoryDiscovery {
   foreach ($manifest in $files | Where-Object { [System.IO.Path]::GetFileName($_) -ieq 'package.json' }) {
     $json = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json -AsHashtable
     $deps = @()
-    if ($json.dependencies) { $deps += @($json.dependencies.Keys) }
-    if ($json.devDependencies) { $deps += @($json.devDependencies.Keys) }
+    $dependencies = Get-JsonValue $json 'dependencies'
+    $devDependencies = Get-JsonValue $json 'devDependencies'
+    if ($dependencies) { $deps += @($dependencies.Keys) }
+    if ($devDependencies) { $deps += @($devDependencies.Keys) }
     $scripts = @()
-    if ($json.scripts) { $scripts = @($json.scripts.Values | ForEach-Object { [string] $_ }) }
+    $packageScripts = Get-JsonValue $json 'scripts'
+    if ($packageScripts) { $scripts = @($packageScripts.Values | ForEach-Object { [string] $_ }) }
     if (-not ($deps -contains 'react' -or $deps -contains 'react-dom' -or ($scripts -match 'react-scripts'))) { continue }
     $relativeFile = ConvertTo-RepoPath $rootPath $manifest
     $appPath = [System.IO.Path]::GetDirectoryName($relativeFile).Replace('\','/')
     if ($appPath -eq '.') { $appPath = '' }
     $dockerfile = @($relative | Where-Object { [System.IO.Path]::GetDirectoryName($_).Replace('\','/') -eq $appPath -and [System.IO.Path]::GetFileName($_) -ieq 'Dockerfile' } | Select-Object -First 1)
     $cicd = $null
-    if ($json.Contains('cicd')) { if ($json.cicd -is [bool]) { $cicd = $json.cicd } else { $cicd = Get-CicdSetting @('invalid') $relativeFile } }
+    $cicdValue = Get-JsonValue $json 'cicd'
+    if ($json.Contains('cicd')) { if ($cicdValue -is [bool]) { $cicd = $cicdValue } else { $cicd = Get-CicdSetting @('invalid') $relativeFile } }
     $id = ConvertTo-DiscoveryId $(if ($appPath) {$appPath} else {'root'})
-    $applications.Add([pscustomobject]@{ id=$id; name=$(if ($json.name) {[string]$json.name} elseif ($appPath) {[System.IO.Path]::GetFileName($appPath)} else {'root'}); path=$appPath; ecosystem='node'; type='react'; subtype='react'; projectSystem='npm'; targetFrameworks=@(); buildRequirements=[pscustomobject]@{platform='any';tools=@('node','pnpm')}; files=@($relativeFile); dockerfile=$(if ($dockerfile.Count) {$dockerfile[0]} else {''}); cicd=$cicd })
+    $packageName = Get-JsonValue $json 'name'
+    $applications.Add([pscustomobject]@{ id=$id; name=$(if ($packageName) {[string]$packageName} elseif ($appPath) {[System.IO.Path]::GetFileName($appPath)} else {'root'}); path=$appPath; ecosystem='node'; type='react'; subtype='react'; projectSystem='npm'; targetFrameworks=@(); buildRequirements=[pscustomobject]@{platform='any';tools=@('node','pnpm')}; files=@($relativeFile); dockerfile=$(if ($dockerfile.Count) {$dockerfile[0]} else {''}); cicd=$cicd })
   }
   $selected = @($applications | Where-Object { $_.cicd -ne $false })
   $named = @(Set-AutomaticApplicationNames $selected)
@@ -59,7 +65,7 @@ function Get-DependencyGraph {
   foreach ($app in $Discovery.applications) { $owners[$app.path]=$app.id; $dependencies[$app.id]=@(); foreach ($item in $app.files | Where-Object {$_ -match '\.(csproj|fsproj|vbproj)$'}) {$projectIds[$item.ToLowerInvariant()]=$app.id} }
   $packages = [System.Collections.Generic.List[object]]::new()
   foreach ($file in $files | Where-Object { [System.IO.Path]::GetFileName($_) -ieq 'package.json' }) {
-    try { $json=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable; if (-not ($json.name -is [string])) {continue}; $names=@(); foreach($key in @('dependencies','devDependencies','peerDependencies','optionalDependencies')) {if($json[$key]){$names+=@($json[$key].Keys)}}; $directory=[System.IO.Path]::GetDirectoryName((ConvertTo-RepoPath $rootPath $file)).Replace('\','/'); $app=@($Discovery.applications|Where-Object path -eq $directory|Select-Object -First 1); $nodeId=if($app.Count){$app[0].id}else{"package:$($json.name)"}; $packages.Add([pscustomobject]@{name=$json.name;directory=$directory;nodeId=$nodeId;dependencies=$names}) } catch {}
+    try { $json=Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable; $packageName=Get-JsonValue $json 'name'; if (-not ($packageName -is [string])) {continue}; $names=@(); foreach($key in @('dependencies','devDependencies','peerDependencies','optionalDependencies')) {$dependencyList=Get-JsonValue $json $key;if($dependencyList){$names+=@($dependencyList.Keys)}}; $directory=[System.IO.Path]::GetDirectoryName((ConvertTo-RepoPath $rootPath $file)).Replace('\','/'); $app=@($Discovery.applications|Where-Object path -eq $directory|Select-Object -First 1); $nodeId=if($app.Count){$app[0].id}else{"package:$packageName"}; $packages.Add([pscustomobject]@{name=$packageName;directory=$directory;nodeId=$nodeId;dependencies=$names}) } catch {}
   }
   $packageByName=@{}; foreach($pkg in $packages){$packageByName[$pkg.name]=$pkg}
   foreach($pkg in $packages){$owners[$pkg.directory]=$pkg.nodeId;if(-not $dependencies.Contains($pkg.nodeId)){$dependencies[$pkg.nodeId]=@()};$dependencies[$pkg.nodeId]=@(Get-UniqueSorted @($pkg.dependencies|ForEach-Object {if($packageByName.ContainsKey($_)){$packageByName[$_].nodeId}}))}
@@ -73,7 +79,9 @@ function Get-AffectedFromFiles {
   $direct=[ordered]@{};foreach($file in $changed){$owner=$null;$longest=-1;foreach($directory in $graph.owners.Keys){if(($directory -eq '' -or $file -eq $directory -or $file.StartsWith("$directory/")) -and $directory.Length -gt $longest){$owner=$graph.owners[$directory];$longest=$directory.Length}};if($owner){if(-not $direct.Contains($owner)){$direct[$owner]=[System.Collections.Generic.List[string]]::new()};$direct[$owner].Add($file)}}
   $reverse=@{};foreach($source in $graph.dependencies.Keys){foreach($target in $graph.dependencies[$source]){if(-not $reverse.ContainsKey($target)){$reverse[$target]=[System.Collections.Generic.List[string]]::new()};$reverse[$target].Add($source)}}
   $distance=@{};$queue=[System.Collections.Generic.Queue[string]]::new();foreach($node in $direct.Keys){$distance[$node]=0;$queue.Enqueue($node)};while($queue.Count){$node=$queue.Dequeue();foreach($consumer in $reverse[$node]){if(-not $distance.ContainsKey($consumer)){$distance[$consumer]=$distance[$node]+1;$queue.Enqueue($consumer)}}}
-  $apps=@{};foreach($app in $discovery.applications){$apps[$app.id]=$app};$affected=@(foreach($id in $distance.Keys){if($apps.ContainsKey($id)){[pscustomobject]@{id=$id;reason=$(if($distance[$id] -eq 0){'direct-file-change'}else{'dependency-change'});changedFiles=@(Get-UniqueSorted $direct[$id])}}}|Sort-Object id)
+  $apps=@{};foreach($app in $Graph.applications){$apps[$app.id]=$app}
+  $affectedItems=foreach($id in $distance.Keys){if($apps.ContainsKey($id)){[pscustomobject]@{id=$id;reason=$(if($distance[$id] -eq 0){'direct-file-change'}else{'dependency-change'});changedFiles=@(Get-UniqueSorted $direct[$id])}}}
+  $affected=@($affectedItems|Sort-Object -Property id)
   [pscustomobject]@{schemaVersion=1;generatedBy='polyglot-repository-discovery';base=$Base;head=$Head;changedFiles=$changed;affectedApplications=$affected}
 }
 

@@ -55,6 +55,9 @@ Assert-Equal $manifest.environments.qa.portal.version '1.2.0-rc.1' 'QA manifest 
 Assert-Equal $manifest.environments.production.portal.version '1.0.0' 'Production manifest selects newest final release.'
 $markdown=ConvertTo-EnvironmentManifestMarkdown $manifest
 Assert-True ($markdown.Contains('## DEV versions to deploy') -and $markdown.Contains('| portal | 1.0.0 | Production release | `portal/v1.0.0` | `sha-0` |')) 'Environment manifest release notes contain all environments and version metadata.'
+$roundTripManifest=ConvertFrom-Json (ConvertTo-Json -InputObject $manifest -Depth 40)
+$roundTripMarkdown=ConvertTo-EnvironmentManifestMarkdown $roundTripManifest
+Assert-True ($roundTripMarkdown.Contains('| portal | 1.2.0-rc.1 | Release candidate | `portal/v1.2.0-rc.1` | `sha-3` |')) 'Environment release notes support JSON-deserialized manifests.'
 
 $repoRoot=[System.IO.Path]::GetFullPath((Join-Path $testsRoot '..\..\..'))
 $real=(Get-RepositoryDiscovery $repoRoot).applications

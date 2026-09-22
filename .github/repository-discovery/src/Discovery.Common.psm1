@@ -15,6 +15,12 @@ function ConvertTo-DiscoveryId {
   (($withoutExtension -replace '[^a-zA-Z0-9]+', '-') -replace '(^-|-$)', '').ToLowerInvariant()
 }
 
+function Get-JsonValue {
+  param([System.Collections.IDictionary] $Object, [string] $Name)
+  if ($null -ne $Object -and $Object.Contains($Name)) { return $Object[$Name] }
+  return $null
+}
+
 function Get-XmlValues {
   param([string] $Xml, [string] $Tag)
   $pattern = '<' + [regex]::Escape($Tag) + '[^>]*>([^<]+)</' + [regex]::Escape($Tag) + '>'
@@ -150,4 +156,4 @@ function Set-AutomaticApplicationNames {
   }
 }
 
-Export-ModuleMember -Function ConvertTo-RepoPath, ConvertTo-DiscoveryId, Get-XmlValues, Test-XmlValue, Get-XmlPropertyValues, Get-CicdSetting, Get-UniqueSorted, Get-DiscoveryFiles, Set-AutomaticApplicationNames
+Export-ModuleMember -Function ConvertTo-RepoPath, ConvertTo-DiscoveryId, Get-JsonValue, Get-XmlValues, Test-XmlValue, Get-XmlPropertyValues, Get-CicdSetting, Get-UniqueSorted, Get-DiscoveryFiles, Set-AutomaticApplicationNames

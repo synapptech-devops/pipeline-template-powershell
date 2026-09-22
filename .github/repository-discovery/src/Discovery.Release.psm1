@@ -1,6 +1,6 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
-Import-Module (Join-Path $PSScriptRoot 'Discovery.Pipeline.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Discovery.Pipeline.psm1')
 
 function Get-ApplicationTags {param([string]$Root,[string]$AppId);$result=@(& git -C $Root tag -l "$AppId/v*");if($LASTEXITCODE -ne 0){throw "Could not list tags for '$AppId' (git exit code $LASTEXITCODE)."};@($result|Where-Object{$_})}
 function Get-TagCommit {param([string]$Root,[string]$Tag);$sha=& git -C $Root rev-list -n 1 $Tag;if($LASTEXITCODE -ne 0){throw "Tag not found: $Tag"};$sha.Trim()}
@@ -34,6 +34,39 @@ function New-EnvironmentManifest {param([object[]]$Applications,[string[]]$Tags,
  foreach($app in $Applications){$ids=@($app.id);if($app.legacyId){$ids+=$app.legacyId};$found=[System.Collections.Generic.List[object]]::new();foreach($tag in $Tags){foreach($id in $ids){$prefix="$id/v";if(-not $tag.StartsWith($prefix)){continue};$text=$tag.Substring($prefix.Length);$v=ConvertFrom-FinalVersion $text;if($v){$found.Add([pscustomobject]@{tag=$tag;version=$text;parsed=$v;rc=0;kind='final'});continue};$v=ConvertFrom-RcVersion $text;if($v){$found.Add([pscustomobject]@{tag=$tag;version=$text;parsed=$v;rc=$v.rc;kind='rc'})}}};$finals=@($found|Where-Object kind -eq 'final'|Sort-Object @{Expression={$_.parsed.major};Descending=$false},@{Expression={$_.parsed.minor};Descending=$false},@{Expression={$_.parsed.patch};Descending=$false},@{Expression={$_.tag};Descending=$false});$final=if($finals.Count){$finals[-1]}else{$null};$promoted=@{};foreach($f in $finals){$promoted[$f.version]=$true};$rcs=@($found|Where-Object{$_.kind -eq 'rc' -and -not $promoted["$($_.parsed.major).$($_.parsed.minor).$($_.parsed.patch)"]}|Sort-Object @{Expression={$_.parsed.major};Descending=$false},@{Expression={$_.parsed.minor};Descending=$false},@{Expression={$_.parsed.patch};Descending=$false},@{Expression={$_.rc};Descending=$false},@{Expression={$_.tag};Descending=$false});$rc=if($rcs.Count){$rcs[-1]}else{$null};$candidate=if($rc){$rc}else{$final};$source=if($rc){'release-candidate'}else{'production-baseline'};foreach($environment in 'dev','qa'){if($candidate){$envs[$environment][$app.id]=[pscustomobject]@{state='available';version=$candidate.version;tag=$candidate.tag;commit=$Commits[$candidate.tag];source=$source}}else{$envs[$environment][$app.id]=[pscustomobject]@{state='not-released'}}};if($final){$envs.production[$app.id]=[pscustomobject]@{state='available';version=$final.version;tag=$final.tag;commit=$Commits[$final.tag];source='production'}}else{$envs.production[$app.id]=[pscustomobject]@{state='not-released'}}}
  [pscustomobject]@{schemaVersion=1;generatedBy='polyglot-repository-discovery';generatedAt=$GeneratedAt;environments=$envs}
 }
-function ConvertTo-EnvironmentManifestMarkdown {param([object]$Manifest);$lines=[System.Collections.Generic.List[string]]::new();$lines.Add('# Environment manifest');$lines.Add('');$lines.Add("Generated: $($Manifest.generatedAt)");$lines.Add('');$lines.Add('DEV and QA use the newest unpromoted release candidate. When no candidate exists, they use the newest production release as the deployment baseline.');foreach($environment in 'dev','qa','production'){$lines.Add('');$lines.Add("## $($environment.ToUpperInvariant()) versions to deploy");$lines.Add('');$lines.Add('| Application | Version | Source | Tag | Commit |');$lines.Add('| --- | --- | --- | --- | --- |');foreach($property in $Manifest.environments.$environment.psobject.Properties|Sort-Object Name){$entry=$property.Value;if($entry.state -ne 'available'){$version='—';$source='No released version';$tag='—';$commit='—'}else{$version=$entry.version;$source=switch($entry.source){'release-candidate'{'Release candidate'}'production-baseline'{'Production baseline'}default{'Production release'}};$tag=$entry.tag;$commit=$entry.commit};$lines.Add("| $($property.Name) | $version | $source | ``$tag`` | ``$commit`` |")}};$lines.Add('');$lines.Add('The attached `environment-manifest.json` is the machine-readable source for this table.');$lines -join "`n"}
+function ConvertTo-EnvironmentManifestMarkdown {
+  param([object]$Manifest)
+  $lines=[System.Collections.Generic.List[string]]::new()
+  $lines.Add('# Environment manifest')
+  $lines.Add('')
+  $lines.Add("Generated: $($Manifest.generatedAt)")
+  $lines.Add('')
+  $lines.Add('DEV and QA use the newest unpromoted release candidate. When no candidate exists, they use the newest production release as the deployment baseline.')
+  foreach($environment in 'dev','qa','production'){
+    $lines.Add('')
+    $lines.Add("## $($environment.ToUpperInvariant()) versions to deploy")
+    $lines.Add('')
+    $lines.Add('| Application | Version | Source | Tag | Commit |')
+    $lines.Add('| --- | --- | --- | --- | --- |')
+    $environments=$Manifest.environments
+    if($environments -is [System.Collections.IDictionary]){$entries=$environments[$environment]}
+    else{$environmentProperty=$environments.PSObject.Properties[$environment];$entries=if($environmentProperty){$environmentProperty.Value}else{$null}}
+    if($entries -is [System.Collections.IDictionary]){
+      $applicationNames=@($entries.Keys|Sort-Object)
+      foreach($applicationName in $applicationNames){$entry=$entries[$applicationName];$displayName=$applicationName;Add-EnvironmentManifestRow $lines $displayName $entry}
+    }else{
+      foreach($property in $entries.psobject.Properties|Sort-Object Name){Add-EnvironmentManifestRow $lines $property.Name $property.Value}
+    }
+  }
+  $lines.Add('')
+  $lines.Add('The attached `environment-manifest.json` is the machine-readable source for this table.')
+  $lines -join "`n"
+}
+function Add-EnvironmentManifestRow {
+  param([System.Collections.Generic.List[string]]$Lines,[string]$Application,[object]$Entry)
+  if($Entry.state -ne 'available'){$version='—';$source='No released version';$tag='—';$commit='—'}
+  else{$version=$Entry.version;$source=switch($Entry.source){'release-candidate'{'Release candidate'}'production-baseline'{'Production baseline'}default{'Production release'}};$tag=$Entry.tag;$commit=$Entry.commit}
+  $Lines.Add("| $Application | $version | $source | ``$tag`` | ``$commit`` |")
+}
 
 Export-ModuleMember -Function Get-ApplicationTags,Get-TagCommit,Get-TagCommitTimestamp,ConvertFrom-FinalVersion,ConvertFrom-RcVersion,Compare-SemVersion,Get-NextRcVersion,Get-ReleaseConfig,Invoke-GithubApi,Get-GithubReleaseByTag,New-GithubRelease,Set-GithubReleaseBody,Add-GithubReleaseAsset,Save-GithubReleaseAsset,New-ArtifactZip,Expand-ArtifactZip,Find-AutoRcCandidates,New-EnvironmentManifest,ConvertTo-EnvironmentManifestMarkdown
