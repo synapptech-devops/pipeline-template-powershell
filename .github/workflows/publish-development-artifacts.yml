@@ -33,27 +33,16 @@ jobs:
       - name: Read project toolchain versions
         id: toolchain
         run: pwsh -NoProfile -File src/toolchain.ps1
-      - uses: actions/setup-node@v7
-        if: ${{ steps.toolchain.outputs.node != '' }}
-        with:
-          node-version: ${{ steps.toolchain.outputs.node }}
-          package-manager-cache: false
-      - uses: pnpm/action-setup@v6
-        if: ${{ steps.toolchain.outputs.pnpm != '' }}
-        with:
-          version: ${{ steps.toolchain.outputs.pnpm }}
-          package_json_file: .github/repository-discovery/package.json
-      - run: pnpm install --frozen-lockfile
       - name: Validate the successful non-main source run
         id: source
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >
-          pnpm exec tsx src/dev-source-run-cli.ts
-          --repository "${{ github.repository }}"
-          --run-id "${{ inputs.source_run_id }}"
-          --workflow ".github/workflows/validate-changed-applications.yml"
-          --run-name-prefix "Integrated branch validation:"
+          pwsh -NoProfile -File src/dev-source-run.ps1
+          -Repository "${{ github.repository }}"
+          -RunId "${{ inputs.source_run_id }}"
+          -Workflow ".github/workflows/validate-changed-applications.yml"
+          -RunNamePrefix "Integrated branch validation:"
       - name: Download source discovery manifest
         uses: actions/download-artifact@v7
         with:
@@ -70,7 +59,7 @@ jobs:
           run-id: ${{ steps.source.outputs.source_run_id }}
       - name: Create dev-test build matrix
         id: matrix
-        run: pnpm exec tsx src/build-matrix-cli.ts --affected .pipeline-artifacts/affected-manifest.json --discovery .pipeline-artifacts/discovery-manifest.json
+        run: pwsh -NoProfile -File src/build-matrix.ps1 -Affected .pipeline-artifacts/affected-manifest.json -Discovery .pipeline-artifacts/discovery-manifest.json
 
   build-and-package:
     name: Build dev-test artifacts (${{ matrix.name }})

@@ -1,7 +1,7 @@
 name: Generate Release Candidate Artifacts
 
 # Manually creates a release candidate for every application that has changed
-# since its own last release-candidate build (see src/auto-rc.ts), using the
+# since its own last release-candidate build (see src/auto-rc.ps1), using the
 # supplied commit as the build source. The reusable RC workflow still builds
 # and tests each selected application before publishing it.
 on:
@@ -41,24 +41,11 @@ jobs:
       - name: Read project toolchain versions
         id: toolchain
         run: pwsh -NoProfile -File src/toolchain.ps1
-      - uses: actions/setup-node@v7
-        if: ${{ steps.toolchain.outputs.node != '' }}
-        with:
-          node-version: ${{ steps.toolchain.outputs.node }}
-          package-manager-cache: false
-      - uses: pnpm/action-setup@v6
-        if: ${{ steps.toolchain.outputs.pnpm != '' }}
-        with:
-          version: ${{ steps.toolchain.outputs.pnpm }}
-          package_json_file: .github/repository-discovery/package.json
-      - run: pnpm install --frozen-lockfile
-      - name: Type-check repository discovery
-        run: pnpm run typecheck:discovery
-      - name: Test repository discovery
-        run: pnpm run test:discovery
+      - name: Test PowerShell repository discovery
+        run: pwsh -NoProfile -File tests/run.ps1
       - name: Determine applications changed since their own last release candidate
         id: matrix
-        run: pnpm exec tsx src/auto-rc-cli.ts --root ../..
+        run: pwsh -NoProfile -File src/auto-rc.ps1 -Root ../..
 
   create-rc:
     name: Create release candidate (${{ matrix.name }})

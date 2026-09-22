@@ -39,17 +39,6 @@ jobs:
       - name: Read project toolchain versions
         id: toolchain
         run: pwsh -NoProfile -File src/toolchain.ps1
-      - uses: actions/setup-node@v7
-        if: ${{ steps.toolchain.outputs.node != '' }}
-        with:
-          node-version: ${{ steps.toolchain.outputs.node }}
-          package-manager-cache: false
-      - uses: pnpm/action-setup@v6
-        if: ${{ steps.toolchain.outputs.pnpm != '' }}
-        with:
-          version: ${{ steps.toolchain.outputs.pnpm }}
-          package_json_file: .github/repository-discovery/package.json
-      - run: pnpm install --frozen-lockfile
       - name: Download discovery manifests from the triggering run
         uses: actions/download-artifact@v7
         with:
@@ -66,7 +55,7 @@ jobs:
           run-id: ${{ inputs.discovery_run_id }}
       - name: Create build-and-test matrix
         id: matrix
-        run: pnpm exec tsx src/build-matrix-cli.ts --affected .pipeline-artifacts/affected-manifest.json --discovery .pipeline-artifacts/discovery-manifest.json
+        run: pwsh -NoProfile -File src/build-matrix.ps1 -Affected .pipeline-artifacts/affected-manifest.json -Discovery .pipeline-artifacts/discovery-manifest.json
 
   build-and-test:
     name: Build and test (${{ matrix.name }})

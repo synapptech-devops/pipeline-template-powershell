@@ -81,18 +81,17 @@ jobs:
           # runner; a shared install path races on delete/recreate (EBUSY).
           # A unique path per application keeps concurrent builds independent.
           dest: ~/setup-pnpm-${{ inputs.app_id }}
-      - run: pnpm install --frozen-lockfile
       - name: Resolve the application to version
         id: app
-        run: pnpm exec tsx src/app-lookup-cli.ts --root ../.. --app-id "${{ inputs.app_id }}"
+        run: pwsh -NoProfile -File src/app-lookup.ps1 -Root ../.. -AppId "${{ inputs.app_id }}"
       - name: Compute the next release-candidate version
         id: version
         run: >
-          pnpm exec tsx src/version-rc-cli.ts --root ../..
-          --app-id "${{ inputs.app_id }}"
-          --legacy-id "${{ steps.app.outputs.legacy_id }}"
-          --bump "${{ inputs.bump }}"
-          --initial-version "${{ inputs.initial_version }}"
+          pwsh -NoProfile -File src/version-rc.ps1 -Root ../..
+          -AppId "${{ inputs.app_id }}"
+          -LegacyId "${{ steps.app.outputs.legacy_id }}"
+          -Bump "${{ inputs.bump }}"
+          -InitialVersion "${{ inputs.initial_version }}"
       - name: Read application toolchain versions
         id: app_toolchain
         env:
@@ -223,8 +222,8 @@ jobs:
       - name: Publish the release-candidate artifact to a GitHub Release
         # This is the rc's tag AND its stored artifact in one step: creating the
         # release also creates the underlying git tag at steps.checkout.outputs.sha,
-        # so there is no separate tag/push step. See src/github-releases.ts and
-        # src/artifact-publish-cli.ts to swap this for a different registry later.
+        # so there is no separate tag/push step. See Discovery.Release.psm1 and
+        # artifact-publish.ps1 to swap this for a different registry later.
         # ARTIFACT_DIRECTORY is the deployable build output resolved above by
         # "Determine the artifact directory to publish" — not the source tree.
         env:
@@ -235,15 +234,13 @@ jobs:
           ARTIFACT_REF: ${{ steps.checkout.outputs.sha }}
         shell: pwsh
         run: |
-          & pnpm exec tsx src/artifact-publish-cli.ts `
-            --app-id $env:ARTIFACT_APP_ID `
-            --version $env:ARTIFACT_VERSION `
-            --app-directory $env:ARTIFACT_DIRECTORY `
-            --ref $env:ARTIFACT_REF `
-            --prerelease
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+          pwsh -NoProfile -File src/artifact-publish.ps1 `
+            -AppId $env:ARTIFACT_APP_ID `
+            -Version $env:ARTIFACT_VERSION `
+            -AppDirectory $env:ARTIFACT_DIRECTORY `
+            -Ref $env:ARTIFACT_REF `
+            -Prerelease
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Summarize
         # Same shell-mismatch hazard as elsewhere in this file: this used to
         # be a bash heredoc with no `shell:`, which silently wrote nothing

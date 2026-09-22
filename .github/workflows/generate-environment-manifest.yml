@@ -40,28 +40,17 @@ jobs:
       - name: Read project toolchain versions
         id: toolchain
         run: pwsh -NoProfile -File src/toolchain.ps1
-      - uses: actions/setup-node@v7
-        if: ${{ steps.toolchain.outputs.node != '' }}
-        with:
-          node-version: ${{ steps.toolchain.outputs.node }}
-          package-manager-cache: false
-      - uses: pnpm/action-setup@v6
-        if: ${{ steps.toolchain.outputs.pnpm != '' }}
-        with:
-          version: ${{ steps.toolchain.outputs.pnpm }}
-          package_json_file: .github/repository-discovery/package.json
-      - run: pnpm install --frozen-lockfile
       - name: Generate environment manifest
         run: >
-          pnpm exec tsx src/environment-manifest-cli.ts --root ../..
-          --output .github/repository-discovery/.pipeline-artifacts/environment-manifest.json
+          pwsh -NoProfile -File src/environment-manifest.ps1 -Root ../..
+          -Output .github/repository-discovery/.pipeline-artifacts/environment-manifest.json
       - name: Publish the current manifest to GitHub Releases
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >
-          pnpm exec tsx src/environment-manifest-publish-cli.ts
-          --manifest .pipeline-artifacts/environment-manifest.json
-          --ref "${{ github.sha }}"
+          pwsh -NoProfile -File src/environment-manifest-publish.ps1
+          -Manifest .pipeline-artifacts/environment-manifest.json
+          -Ref "${{ github.sha }}"
       - name: Upload manifest with this workflow run
         uses: actions/upload-artifact@v7
         with:

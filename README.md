@@ -2,7 +2,7 @@
 
 This is a self-contained GitHub Actions pipeline for a polyglot monorepo. Copy its complete `.github` directory into a GitHub repository to discover React and .NET applications, validate only the applications affected by a change, create independently versioned release candidates, and promote QA-tested artifacts to production with GitHub Environment approval gates.
 
-The pipeline deliberately keeps its implementation, Node dependencies, lockfile, and test fixtures under `.github`. It does not require a root `package.json` change and does not take ownership of the consuming repository's dependency tooling.
+The pipeline keeps its PowerShell implementation and test fixtures under `.github`. It does not require a root `package.json` change and does not take ownership of the consuming repository's dependency tooling.
 
 ## What the pipeline does
 
@@ -31,7 +31,7 @@ The runner must be treated as trusted infrastructure. GitHub Environments protec
 
 ## Install in a repository
 
-1. Copy the complete `.github` directory from this project into the root of the target repository. Keep `.github/repository-discovery`, its `package.json`, `pnpm-lock.yaml`, and `pnpm-workspace.yaml` together with `.github/workflows`.
+1. Copy the complete `.github` directory from this project into the root of the target repository. Keep `.github/repository-discovery` together with `.github/workflows`; its `package.json` provides pnpm setup metadata for Node applications.
 2. Commit and push the copied files to the repository's default branch. Workflows using manual dispatch only appear in the Actions UI once their workflow file is on the default branch.
 3. Register self-hosted runners with the standard `windows` and `linux` labels. The build matrix routes Docker-enabled applications to `linux` and all other applications to `windows`.
 4. In the repository's **Settings → Actions → General**, ensure Actions are allowed and that workflow tokens can receive the write permissions requested by the release workflows. If the organization enforces read-only tokens, allow `contents: write` and `packages: write` for these workflows.
@@ -100,48 +100,43 @@ If an application is not discovered, first run the validation workflow and inspe
 
 The pipeline's implementation can be checked independently of the consuming repository:
 
-```sh
+```powershell
 cd .github/repository-discovery
-pnpm install --frozen-lockfile
-pnpm run typecheck:discovery
-pnpm run test:discovery
+pwsh -NoProfile -File tests/run.ps1
 ```
 
-Run these after modifying the pipeline's TypeScript or workflow contracts. The repository-discovery tests include fixture applications and workflow-contract tests; they do not build the consuming repository's applications.
+Run this after modifying the pipeline scripts or workflow contracts. The PowerShell regression checks use fixture applications and do not build the consuming repository's applications.
 
 ## Discovery implementation details
 
-Cross-platform TypeScript discovery for React and .NET applications in a polyglot monorepo. The workflow-related implementation is grouped under `.github/repository-discovery`. Copy the complete `.github` directory into a repository to use the pipeline; its package manifest, lockfile, dependencies, and test commands are self-contained there. No root `package.json` changes are required. All commands below run from `.github/repository-discovery` after the initial `cd`. Discovery runs on Linux or Windows; build requirements are recorded separately in the manifest.
+PowerShell discovery for React and .NET applications in a polyglot monorepo. The workflow-related implementation is grouped under `.github/repository-discovery`. Copy the complete `.github` directory into a repository to use the pipeline; no root `package.json` changes are required. All commands below run from `.github/repository-discovery` after the initial `cd`. Discovery runs on Windows; build requirements are recorded separately in the manifest.
 
-```sh
+```powershell
 cd .github/repository-discovery
-pnpm install --frozen-lockfile
-pnpm run typecheck:discovery
-pnpm run test:discovery
-pnpm exec tsx src/cli.ts ../.. --output .github/repository-discovery/discovery-manifest.json
+pwsh -NoProfile -File src/discovery.ps1 -Root ../.. -Output .github/repository-discovery/discovery-manifest.json
 ```
 
-In GitHub Actions, add `--summary` to publish a detailed Markdown report to the workflow run summary. The included workflow does this automatically:
+In GitHub Actions, add `-Summary` to publish a detailed Markdown report to the workflow run summary. The included workflow publishes the summary in a separate step:
 
-```sh
-pnpm exec tsx src/cli.ts ../.. --output .github/repository-discovery/discovery-manifest.json --summary
+```powershell
+pwsh -NoProfile -File src/discovery.ps1 -Root ../.. -Output .github/repository-discovery/discovery-manifest.json -Summary
 ```
 
 The summary includes each application’s path, project system, target frameworks, platform/tool requirements, and relevant project/package files.
 
-Before discovery creates manifests, the workflow type-checks and tests the repository-discovery implementation. A failure stops the workflow before it can publish artifacts or dispatch application builds.
+Before discovery creates manifests, the workflow runs the PowerShell regression checks. A failure stops the workflow before it can publish artifacts or dispatch application builds.
 
-The pipeline's own `pnpm-workspace.yaml` establishes an independent workspace, so installation and script execution cannot accidentally use the consuming repository's workspace dependencies or lockfile. It excludes the test fixture packages and explicitly permits esbuild's required install script. Keep this file when copying the pipeline; newer pnpm versions no longer read workspace-isolation settings from `.npmrc`.
+The pipeline scripts use PowerShell modules and do not install separate script dependencies.
 
 ## Dependency and change discovery
 
 Generate an affected-application manifest from two Git refs:
 
-```sh
-pnpm exec tsx src/affected-cli.ts --root ../.. --base origin/main --head HEAD --output .github/repository-discovery/affected-manifest.json
+```powershell
+pwsh -NoProfile -File src/affected.ps1 -Root ../.. -Base origin/main -Head HEAD -Output .github/repository-discovery/affected-manifest.json
 ```
 
-The command resolves local Node package dependencies from `package.json` files and .NET dependencies from `ProjectReference` entries. It reports applications changed directly and applications affected transitively through local dependencies. It uses Node's process API to invoke Git, so it works on Windows and Linux runners.
+The command resolves local Node package dependencies from `package.json` files and .NET dependencies from `ProjectReference` entries. It reports applications changed directly and applications affected transitively through local dependencies. Git provides the changed-file list.
 
 On non-`main` pushes, the comparison baseline is the most recent successful integrated `Validation — Validate changed applications` run on the same branch. That workflow includes the affected-application build-and-test matrix, so a failed build does not advance the baseline: later pushes continue to rebuild applications changed since the last validated commit. The first push after this flow is enabled, the first push to a branch, a rewritten branch history, or an unavailable baseline triggers full validation. On pull requests, the comparison is from the PR base SHA to its head SHA, so only directly or transitively affected applications are validated before merge.
 
@@ -151,7 +146,7 @@ On push runs, the included workflow adds an **Applications to rebuild and versio
 
 Tool versions come from the consuming project. Discovery and matrix preparation read the repository root; application builds search from the application directory up to the root, with nearer declarations taking precedence. Node is read from `.nvmrc`, `.node-version`, then `package.json` (`volta.node` or `engines.node`). pnpm is read from `packageManager`, `devEngines.packageManager`, or `engines.pnpm`. The nearest `global.json` selects the .NET SDK, and .NET commands run from the application directory so SDK resolution honors that file.
 
-When a version is not declared, the pipeline keeps the self-hosted runner's installed tool instead of choosing a fixed version. PowerShell reads these settings before dependency installation, so Node does not need to be preinstalled when the repository declares its Node version. pnpm must be installed on the runner if no pnpm version is declared. Selected versions must support the pipeline's dependencies and lockfile; incompatible versions fail validation rather than being silently replaced. Node application builds currently use pnpm; npm/Yarn declarations do not select a different package manager. MSBuild continues to use the installed Visual Studio toolchain.
+When a version is not declared, the pipeline keeps the self-hosted runner's installed tool instead of choosing a fixed version. PowerShell reads these settings before dependency installation, so Node does not need to be preinstalled when the repository declares its Node version. pnpm must be installed on the runner if no pnpm version is declared. Node application builds currently use pnpm; npm/Yarn declarations do not select a different package manager. MSBuild continues to use the installed Visual Studio toolchain.
 
 `Validation — Validate changed applications` has two dependent jobs: it first discovers applications and selects the affected set, then builds and tests that set in a matrix within the same workflow run. Ordinary pushes and pull requests include only affected applications; manual runs and a branch's first push select every discovered application for full validation. Each selected Node application runs its optional `build` and `test` package scripts. SDK-style .NET projects run `dotnet build` and `dotnet test`; legacy MSBuild projects run `msbuild` on the Windows runner. When an application directory contains a file named `Dockerfile`, that matrix entry—including its application build and tests—runs on the Linux runner, then runs `docker build` with the repository root as context and removes the temporary image. Automatic non-`main` branch runs do not retain or publish Docker images or any other deployable artifact. To preserve the existing security boundary, pull requests from forks run discovery only; the build matrix runs for branch pushes and same-repository pull requests. The separate `Validation — Build affected applications manually` workflow remains available for explicit manual runs.
 
@@ -171,12 +166,12 @@ If two applications have the same directory name, discovery automatically includ
 Each application is versioned independently under SemVer 2.0, tracked entirely as git tags of the form `<app-id>/vX.Y.Z` (final) and `<app-id>/vX.Y.Z-rc.N` (release candidate) — no files are edited or committed. The actual build/test/publish/tag steps live once, in the reusable `.github/workflows/build-and-publish-release-candidate.yml` (`workflow_call`), so the manual and automatic paths below never duplicate that logic.
 
 - **DEV-test artifacts** are built only by manually running `.github/workflows/publish-development-artifacts.yml` with the ID of a successful integrated non-`main` `Validation — Validate changed applications` run. The workflow verifies that the supplied run is a successful non-`main` branch push from the integrated validation flow, then rebuilds exactly that run's affected applications. Each deployable application output is uploaded as a GitHub Actions artifact retained for 30 days. Applications with Dockerfiles are also published to GitHub Container Registry as `ghcr.io/<owner>/<repository>/<app-id>:dev-<normalized-branch>-<commit-sha>`, where the branch segment is lowercased and made safe for a container tag. These are dev-test outputs: they create neither a Git tag nor a GitHub Release.
-- **Release candidates from a commit** (`.github/workflows/create-release-candidates-from-main.yml`) run only when started manually from the Actions tab. Provide the full Git commit SHA; the workflow finds every application that changed — directly or via a dependency — since *that application's own* last release-candidate build (any bump level, whether or not it was ever promoted; see `src/auto-rc.ts`) and creates an RC for each one independently at a fixed `minor` bump. It is serialized per requested commit, and one application's build or test failure never blocks or cancels the others. An application with no RC tag yet always gets one (first-ever build), while one whose last RC already points at the supplied commit is skipped rather than rebuilt.
+- **Release candidates from a commit** (`.github/workflows/create-release-candidates-from-main.yml`) run only when started manually from the Actions tab. Provide the full Git commit SHA; the workflow finds every application that changed — directly or via a dependency — since *that application's own* last release-candidate build (any bump level, whether or not it was ever promoted; see `src/auto-rc.ps1`) and creates an RC for each one independently at a fixed `minor` bump. It is serialized per requested commit, and one application's build or test failure never blocks or cancels the others. An application with no RC tag yet always gets one (first-ever build), while one whose last RC already points at the supplied commit is skipped rather than rebuilt.
 - **Single-application release candidates** (`.github/workflows/create-release-candidate-manually.yml`) remain available for one application id at a time, from a branch, tag, or commit SHA, with a chosen bump level (`major`/`minor`/`patch`, default `minor`) and optional `initial_version`. Use this when an explicit versioning choice is needed.
-- In both cases, the target version is always the app's latest **final** tag bumped by the selected level — never bumped from an outstanding, unpromoted rc. If an rc series for that exact target already exists, this continues it at the next `rc.N`; otherwise it starts at `rc.1`. An application with no final tag yet starts at `0.1.0` (or, for the manual workflow, an explicit `initial_version` input). Once the build and tests pass, the app's deployable build output — a React app's static `dist`/`build`/`out` directory, or a .NET app's `dotnet publish` output (the runnable `.exe` for a desktop app, or the dll + wwwroot a web API deploys from) — is tarred and published as an asset on a **GitHub Release** tagged `<app-id>/v<version>` (`src/artifact-publish-cli.ts` / `src/github-releases.ts`) — creating that release also creates the underlying git tag at the exact built commit, so there's no separate tag/push step.
-- **Promotion to final** (`.github/workflows/promote-release-candidate-to-production.yml`) is a separate manual step, taken after the rc's commit has already been merged to `main` through the normal PR flow — it is not the merge itself. It downloads the exact artifact published for the rc (`src/artifact-fetch-cli.ts`) and re-publishes those same bytes as a new release under the final version — never rebuilt from source — so what passed QA is what ships. A final tag is immutable: promotion fails if that final tag already exists.
+- In both cases, the target version is always the app's latest **final** tag bumped by the selected level — never bumped from an outstanding, unpromoted rc. If an rc series for that exact target already exists, this continues it at the next `rc.N`; otherwise it starts at `rc.1`. An application with no final tag yet starts at `0.1.0` (or, for the manual workflow, an explicit `initial_version` input). Once the build and tests pass, the app's deployable build output — a React app's static `dist`/`build`/`out` directory, or a .NET app's `dotnet publish` output (the runnable `.exe` for a desktop app, or the dll + wwwroot a web API deploys from) — is zipped and published as an asset on a **GitHub Release** tagged `<app-id>/v<version>` (`src/artifact-publish.ps1` / `src/Discovery.Release.psm1`) — creating that release also creates the underlying git tag at the exact built commit, so there's no separate tag/push step.
+- **Promotion to final** (`.github/workflows/promote-release-candidate-to-production.yml`) is a separate manual step, taken after the rc's commit has already been merged to `main` through the normal PR flow — it is not the merge itself. It downloads the exact artifact published for the rc (`src/artifact-fetch.ps1`) and re-publishes those same bytes as a new release under the final version — never rebuilt from source — so what passed QA is what ships. A final tag is immutable: promotion fails if that final tag already exists.
 
-**Artifact storage is GitHub Releases for now**, chosen as a working default with no extra infrastructure or credentials beyond the `GITHUB_TOKEN` these workflows already have. It's swappable later without touching any versioning logic: `src/github-releases.ts` is the only place that knows about GitHub's REST API, and `artifact-publish-cli.ts` / `artifact-fetch-cli.ts` are the only two callers — replace their bodies to point at a different registry (npm, NuGet, blob storage, whatever) and nothing else in the pipeline needs to change. The only runner dependency is `tar` (ships with Windows 10+ and Linux, already relied on here), used to package each app's resolved deployable output directory (not its source tree) into a single asset.
+**Artifact storage is GitHub Releases for now**, chosen as a working default with no extra infrastructure or credentials beyond the `GITHUB_TOKEN` these workflows already have. It's swappable later without touching any versioning logic: `src/Discovery.Release.psm1` contains the GitHub REST calls, while `artifact-publish.ps1` and `artifact-fetch.ps1` package and retrieve deployable artifacts.
 
 ## Deployments and approval gates
 

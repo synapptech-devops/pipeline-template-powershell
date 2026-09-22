@@ -58,27 +58,16 @@ jobs:
       - name: Read project toolchain versions
         id: toolchain
         run: pwsh -NoProfile -File src/toolchain.ps1
-      - uses: actions/setup-node@v7
-        if: ${{ steps.toolchain.outputs.node != '' }}
-        with:
-          node-version: ${{ steps.toolchain.outputs.node }}
-          package-manager-cache: false
-      - uses: pnpm/action-setup@v6
-        if: ${{ steps.toolchain.outputs.pnpm != '' }}
-        with:
-          version: ${{ steps.toolchain.outputs.pnpm }}
-          package_json_file: .github/repository-discovery/package.json
-      - run: pnpm install --frozen-lockfile
       - name: Compute the final version and validate the rc tag
         id: promote
         run: >
-          pnpm exec tsx src/version-promote-cli.ts --root ../..
-          --rc-tag "${{ inputs.rc_tag }}"
+          pwsh -NoProfile -File src/version-promote.ps1 -Root ../..
+          -RcTag "${{ inputs.rc_tag }}"
       - name: Resolve the application name
         id: app
         run: >
-          pnpm exec tsx src/app-lookup-cli.ts --root ../..
-          --app-id "${{ steps.promote.outputs.app_id }}"
+          pwsh -NoProfile -File src/app-lookup.ps1 -Root ../..
+          -AppId "${{ steps.promote.outputs.app_id }}"
       - name: Confirm the release candidate is reachable from main
         # The rc tag was created against an arbitrary commit (any branch). Tagging
         # main as final is deliberately a separate, later step (see
@@ -102,10 +91,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: >
-          pnpm exec tsx src/artifact-fetch-cli.ts
-          --app-id "${{ steps.promote.outputs.app_id }}"
-          --version "${{ steps.promote.outputs.rc_version }}"
-          --destination "${{ github.workspace }}/.github/repository-discovery/.pipeline-artifacts/promote"
+          pwsh -NoProfile -File src/artifact-fetch.ps1
+          -AppId "${{ steps.promote.outputs.app_id }}"
+          -Version "${{ steps.promote.outputs.rc_version }}"
+          -Destination "${{ github.workspace }}/.github/repository-discovery/.pipeline-artifacts/promote"
       - name: Validate release-candidate artifact publication inputs
         shell: pwsh
         env:
@@ -139,14 +128,12 @@ jobs:
           ARTIFACT_REF: ${{ steps.promote.outputs.source_sha }}
         shell: pwsh
         run: |
-          & pnpm exec tsx src/artifact-publish-cli.ts `
-            --app-id $env:ARTIFACT_APP_ID `
-            --version $env:ARTIFACT_VERSION `
-            --app-directory $env:ARTIFACT_DIRECTORY `
-            --ref $env:ARTIFACT_REF
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+          pwsh -NoProfile -File src/artifact-publish.ps1 `
+            -AppId $env:ARTIFACT_APP_ID `
+            -Version $env:ARTIFACT_VERSION `
+            -AppDirectory $env:ARTIFACT_DIRECTORY `
+            -Ref $env:ARTIFACT_REF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Summarize
         shell: pwsh
         env:
