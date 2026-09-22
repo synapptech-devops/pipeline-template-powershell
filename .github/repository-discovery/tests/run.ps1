@@ -35,6 +35,8 @@ Assert-Equal (Get-CicdSetting @('TRUE','true') 'fixture') $true 'Consistent case
 Assert-Equal (Get-CicdSetting @('true','false') 'fixture') $null 'Conflicting CI/CD settings are ignored'
 
 $graph=Get-DependencyGraph $fixture (Get-RepositoryDiscovery $fixture)
+$emptyDiff=Get-AffectedFromFiles $graph @()
+Assert-Equal $emptyDiff.affectedApplications.Count 0 'An empty diff must return an empty affected-applications list.'
 $direct=Get-AffectedFromFiles $graph @('apps/portal/src/App.tsx')
 Assert-Equal $direct.affectedApplications[0].reason 'direct-file-change' 'Direct application file impact'
 Assert-Equal $direct.affectedApplications[0].changedFiles @('apps/portal/src/App.tsx') 'Direct change file details'

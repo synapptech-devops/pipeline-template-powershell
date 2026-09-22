@@ -89,6 +89,7 @@ function Get-AffectedManifest {
   param([string] $Root,[string] $Base,[string] $Head)
   $discovery=Get-RepositoryDiscovery $Root; $graph=Get-DependencyGraph $Root $discovery
   $diff=@(& git -C $Root diff --name-only --diff-filter=ACMRD $Base $Head); if($LASTEXITCODE -ne 0){throw "git diff failed ($LASTEXITCODE)"}
+  if(-not $diff.Count){return [pscustomobject]@{schemaVersion=1;generatedBy='polyglot-repository-discovery';base=$Base;head=$Head;changedFiles=@();affectedApplications=@()}}
   Get-AffectedFromFiles -Graph $graph -ChangedFiles $diff -Base $Base -Head $Head
 }
 
