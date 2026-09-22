@@ -52,7 +52,7 @@ function Get-RepositoryDiscovery {
     $packageName = Get-JsonValue $json 'name'
     $applications.Add([pscustomobject]@{ id=$id; name=$(if ($packageName) {[string]$packageName} elseif ($appPath) {[System.IO.Path]::GetFileName($appPath)} else {'root'}); path=$appPath; ecosystem='node'; type='react'; subtype='react'; projectSystem='npm'; targetFrameworks=@(); buildRequirements=[pscustomobject]@{platform='any';tools=@('node','pnpm')}; files=@($relativeFile); dockerfile=$(if ($dockerfile.Count) {$dockerfile[0]} else {''}); cicd=$cicd })
   }
-  $selected = @($applications | Where-Object { $_.cicd -ne $false })
+  $selected = @($applications | Where-Object { $_.cicd -eq $true })
   $named = @(Set-AutomaticApplicationNames $selected)
   $named = @($named | Sort-Object { if ($_.legacyId) {$_.legacyId} else {$_.id} })
   [pscustomobject]@{ schemaVersion=1; generatedBy='polyglot-repository-discovery'; applications=$named }

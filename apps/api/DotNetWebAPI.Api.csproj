@@ -5,6 +5,7 @@
     <cicd>true</cicd>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <cicd>true</cicd>
   </PropertyGroup>
 
   <ItemGroup>

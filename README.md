@@ -50,7 +50,7 @@ No changes are needed to the target repository's root `package.json`. The pipeli
 
 ### Explicit CI/CD participation
 
-Discovery remains automatic by default. To explicitly retain a detected project in CI/CD, add this property to any modern or legacy MSBuild project file:
+Applications are included in workflow discovery only when they explicitly opt in. Add this property to each modern or legacy MSBuild project file that should participate:
 
 ```xml
 <PropertyGroup>
@@ -58,7 +58,7 @@ Discovery remains automatic by default. To explicitly retain a detected project 
 </PropertyGroup>
 ```
 
-To exclude a detected .NET project, use `<cicd>false</cicd>` instead. The setting value is case-insensitive and works with the legacy MSBuild XML namespace as well as SDK-style project files. The earlier uppercase `<CICD>` spelling is also accepted for compatibility.
+Projects without this property, or with `<cicd>false</cicd>`, are excluded. The setting value is case-insensitive and works with the legacy MSBuild XML namespace as well as SDK-style project files. The earlier uppercase `<CICD>` spelling is also accepted for compatibility.
 
 For a detected React/JavaScript application, use a JSON boolean in its `package.json`:
 
@@ -68,7 +68,7 @@ For a detected React/JavaScript application, use a JSON boolean in its `package.
 }
 ```
 
-Set `"cicd": false` to exclude it. Omitting either property preserves the pipeline's existing automatic detection behavior. Invalid values, including JSON strings such as `"false"`, are ignored with a warning so an existing application is not accidentally removed.
+Set `"cicd": false` or omit the property to exclude it. Only the JSON boolean `true` enables workflow discovery; string values such as `"true"` do not.
 
 The application ID is based on its directory path and is stable across releases. For example, `apps/customer-portal` becomes `customer-portal`, which produces tags such as `customer-portal/v1.0.0-rc.1` and the GHCR package path `ghcr.io/<owner>/<repository>/customer-portal`.
 

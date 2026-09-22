@@ -86,7 +86,7 @@ function Get-CicdSetting {
   if (-not $Values -or $Values.Count -eq 0) { return $null }
   $normalized = @($Values | ForEach-Object { $_.Trim().ToLowerInvariant() })
   if (@($normalized | Where-Object { $_ -notin @('true', 'false') }).Count -gt 0 -or @($normalized | Select-Object -Unique).Count -ne 1) {
-    [Console]::Error.WriteLine("Warning: ignoring invalid or conflicting cicd setting in $Source; preserving automatic discovery.")
+    [Console]::Error.WriteLine("Warning: ignoring invalid or conflicting cicd setting in $Source; application will not be included in workflow discovery.")
     return $null
   }
   return $normalized[0] -eq 'true'

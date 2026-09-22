@@ -1,1 +1,1 @@
-<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><UseWindowsForms>true</UseWindowsForms></PropertyGroup></Project>
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net48</TargetFramework><UseWindowsForms>true</UseWindowsForms><cicd>true</cicd></PropertyGroup></Project>

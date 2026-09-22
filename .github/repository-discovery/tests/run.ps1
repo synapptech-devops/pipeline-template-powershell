@@ -21,6 +21,8 @@ function Assert-True {param([bool]$Condition,[string]$Message);if(-not $Conditio
 $fixture = [System.IO.Path]::GetFullPath((Join-Path $testsRoot 'fixtures\monorepo'))
 $applications = (Get-RepositoryDiscovery $fixture).applications
 Assert-Equal @($applications|ForEach-Object subtype) @('react','web','winforms','wpf','aspnet-framework','library-or-service') 'Discovery should retain the supported application types in stable order.'
+Assert-True (@($applications | Where-Object cicd -ne $true).Count -eq 0) 'Only applications explicitly opted in with cicd=true may be discovered.'
+Assert-True (@($applications | Where-Object id -in @('not-enabled','disabled','src-not-enabled-not-enabled','src-disabled-disabled')).Count -eq 0) 'React and .NET applications without cicd=true must be excluded.'
 $portal=@($applications|Where-Object id -ceq 'portal')[0]
 Assert-Equal $portal.name 'Portal' 'React application friendly name'
 Assert-Equal $portal.legacyId 'apps-portal' 'React legacy identifier'
