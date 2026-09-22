@@ -22,7 +22,20 @@ function New-GithubRelease {param([string]$Tag,[string]$Ref,[string]$Name,[switc
 function Set-GithubReleaseBody {param([int]$ReleaseId,[string]$Body);$cfg=Get-ReleaseConfig;Invoke-GithubApi PATCH "$($cfg.ApiUrl)/repos/$($cfg.Repository)/releases/$ReleaseId" @{body=$Body}|Out-Null}
 function Add-GithubReleaseAsset {param([object]$Release,[string]$Name,[string]$Path,[string]$ContentType='application/zip');$cfg=Get-ReleaseConfig;$old=@($Release.assets|Where-Object name -ceq $Name|Select-Object -First 1);if($old.Count){Invoke-GithubApi DELETE "$($cfg.ApiUrl)/repos/$($cfg.Repository)/releases/assets/$($old[0].id)" $null|Out-Null};$upload=($Release.upload_url -replace '\{.*\}$','')+'?name='+[uri]::EscapeDataString($Name);$headers=@{Authorization="Bearer $($cfg.Token)";'Content-Type'=$ContentType};Invoke-RestMethod -Method Post -Uri $upload -Headers $headers -InFile $Path -ContentType $ContentType|Out-Null}
 function Save-GithubReleaseAsset {param([object]$Asset,[string]$Path);$cfg=Get-ReleaseConfig;$headers=$cfg.Headers.Clone();$headers.Accept='application/octet-stream';Invoke-WebRequest -Uri $Asset.url -Headers $headers -OutFile $Path -ErrorAction Stop}
-function New-ArtifactZip {param([string]$Source,[string]$Destination);if(Test-Path -LiteralPath $Destination){Remove-Item -LiteralPath $Destination -Force};$items=Get-ChildItem -LiteralPath $Source -Force;if(-not $items){throw "Cannot archive empty directory: $Source"};Compress-Archive -LiteralPath $items.FullName -DestinationPath $Destination -Force}
+function Test-DeployableArtifactDirectory {
+  param([Parameter(Mandatory)][string]$Directory)
+  $root=[System.IO.Path]::GetFullPath($Directory)
+  if(-not (Test-Path -LiteralPath $root -PathType Container)){throw "Deployable artifact directory does not exist: $root"}
+  $files=@(Get-ChildItem -LiteralPath $root -File -Recurse -Force)
+  if(-not $files.Count){throw "Deployable artifact directory is empty: $root"}
+  if(@($files|Where-Object Extension -in '.csproj','.fsproj','.vbproj').Count){throw "'$root' contains project files and appears to be a source directory, not build output."}
+  if(Test-Path -LiteralPath (Join-Path $root 'package.json')){throw "'$root' contains package.json and appears to be a Node source directory; pass the built dist, build, or out directory instead."}
+  $hasStaticSite=Test-Path -LiteralPath (Join-Path $root 'index.html') -PathType Leaf
+  $hasDotnetOutput=@($files|Where-Object Extension -in '.dll','.exe').Count -gt 0
+  if(-not ($hasStaticSite -or $hasDotnetOutput)){throw "'$root' has no deployable marker. Expected a static-site index.html or a published .NET .dll/.exe."}
+  [pscustomobject]@{Directory=$root;Kind=$(if($hasStaticSite){'static-site'}else{'dotnet'})}
+}
+function New-ArtifactZip {param([string]$Source,[string]$Destination);$null=Test-DeployableArtifactDirectory $Source;if(Test-Path -LiteralPath $Destination){Remove-Item -LiteralPath $Destination -Force};$items=Get-ChildItem -LiteralPath $Source -Force;if(-not $items){throw "Cannot archive empty directory: $Source"};Compress-Archive -LiteralPath $items.FullName -DestinationPath $Destination -Force}
 function Expand-ArtifactZip {param([string]$Archive,[string]$Destination);Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force}
 
 function Find-AutoRcCandidates {param([string]$Root,[string]$Head='HEAD');$discovery=Get-RepositoryDiscovery $Root;$graph=Get-DependencyGraph $Root $discovery;$result=[System.Collections.Generic.List[object]]::new();$cache=@{}
@@ -69,4 +82,4 @@ function Add-EnvironmentManifestRow {
   $Lines.Add("| $Application | $version | $source | ``$tag`` | ``$commit`` |")
 }
 
-Export-ModuleMember -Function Get-ApplicationTags,Get-TagCommit,Get-TagCommitTimestamp,ConvertFrom-FinalVersion,ConvertFrom-RcVersion,Compare-SemVersion,Get-NextRcVersion,Get-ReleaseConfig,Invoke-GithubApi,Get-GithubReleaseByTag,New-GithubRelease,Set-GithubReleaseBody,Add-GithubReleaseAsset,Save-GithubReleaseAsset,New-ArtifactZip,Expand-ArtifactZip,Find-AutoRcCandidates,New-EnvironmentManifest,ConvertTo-EnvironmentManifestMarkdown
+Export-ModuleMember -Function Get-ApplicationTags,Get-TagCommit,Get-TagCommitTimestamp,ConvertFrom-FinalVersion,ConvertFrom-RcVersion,Compare-SemVersion,Get-NextRcVersion,Get-ReleaseConfig,Invoke-GithubApi,Get-GithubReleaseByTag,New-GithubRelease,Set-GithubReleaseBody,Add-GithubReleaseAsset,Save-GithubReleaseAsset,New-ArtifactZip,Test-DeployableArtifactDirectory,Expand-ArtifactZip,Find-AutoRcCandidates,New-EnvironmentManifest,ConvertTo-EnvironmentManifestMarkdown

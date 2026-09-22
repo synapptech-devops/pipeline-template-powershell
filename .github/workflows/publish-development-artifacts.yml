@@ -158,6 +158,8 @@ jobs:
           }
           if (-not (Test-Path -LiteralPath $artifactPath -PathType Container)) { throw "Resolved artifact directory '$artifactPath' does not exist." }
           "path=$artifactPath" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+      - name: Validate deployable artifact contents
+        run: pwsh -NoProfile -File src/artifact-validate.ps1 -Directory "${{ steps.artifact.outputs.path }}"
       - name: Package deployable application output
         id: package
         shell: pwsh
